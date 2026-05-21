@@ -2,9 +2,11 @@ import streamlit as st
 import pandas as pd
 import io
 from PIL import Image
-import pytesseract
-from pdf2image import convert_from_bytes
 import pdfplumber
+
+# Advanced table extraction tools
+from img2table.document.image import Image as Img2TableImage
+from img2table.ocr import TesseractOCR
 
 st.set_page_config(page_title="File to Excel Converter", layout="centered")
 st.title("📄 Image & PDF to Excel Converter")
@@ -21,19 +23,15 @@ if uploaded_file is not None:
         all_tables = []
         
         with pdfplumber.open(io.BytesIO(uploaded_file.read())) as pdf:
-            st.write(f"Found {len(pdf.pages)} page(s) in PDF.")
-            
             for idx, page in enumerate(pdf.pages):
-                # Attempt to extract natural grid tables
                 tables = page.extract_tables()
                 for table in tables:
                     df = pd.DataFrame(table)
                     all_tables.append(df)
         
         if all_tables:
-            st.subheader("📊 Extracted Table Preview")
-            # Combine all found tables into one sheet
             df_final = pd.concat(all_tables, ignore_index=True)
+            st.subheader("📊 Extracted Table Preview")
             st.dataframe(df_final)
             
             buffer = io.BytesIO()
@@ -42,47 +40,39 @@ if uploaded_file is not None:
         else:
             st.warning("Could not find a digital table grid. Your PDF might be a scanned image snapshot.")
 
-    # --- METHOD 2: IMAGE TABLE ALIGNMENT ---
+    # --- METHOD 2: DEEP LEARNING IMAGE TABLE ALIGNMENT ---
     else:
+        # Show image preview
         image = Image.open(uploaded_file)
         st.image(image, caption="Uploaded Image Preview", use_container_width=True)
-        st.info("🤖 Reconstructing columns from your image text lines...")
+        st.info("🔍 Deep learning is mapping the table grids and columns...")
         
-        # Pull positional data block arrays from the image
-        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+        # Save uploaded file temporarily to bytes for the structural engine
+        img_bytes = uploaded_file.getvalue()
+        src_image = Img2TableImage(io.BytesIO(img_bytes))
         
-        # Group words together that share the same horizontal tier (row)
-        lines = {}
-        for i in range(len(data['text'])):
-            if int(data['conf'][i]) > 40:  # Skip sketchy or blank read elements
-                text = data['text'][i].strip()
-                if text:
-                    top = data['top'][i]
-                    # Give a tiny 10-pixel vertical buffer to catch words slightly tilted
-                    matched_row = min(lines.keys(), key=lambda x: abs(x - top), default=None)
-                    
-                    if matched_row is not None and abs(matched_row - top) < 10:
-                        lines[matched_row].append((data['left'][i], text))
-                    else:
-                        lines[top] = [(data['left'][i], text)]
-                        
-        # Sort rows from top to bottom, and words from left to right
-        sorted_rows = []
-        for top in sorted(lines.keys()):
-            sorted_words = sorted(lines[top], key=lambda x: x[0])
-            row_string = "   ".join([w[1] for w in sorted_words])
-            sorted_rows.append(row_string)
+        # Connect Tesseract OCR to the structural table mapper
+        ocr = TesseractOCR(n_threads=1, lang="eng")
+        
+        # Extract tables based on visual grid lines
+        extracted_tables = src_image.extract_tables(ocr=ocr, implicit_rows=True, borderless_tables=False)
+        
+        if extracted_tables:
+            # Grab the very first table found in the image and turn it into a DataFrame
+            table = extracted_tables[0]
+            df_final = table.to_dataframe()
             
-        df_final = pd.DataFrame({"Table Rows (Aligned)": sorted_rows})
-        st.subheader("📊 Extracted Data Preview")
-        st.dataframe(df_final)
-        
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_final.to_excel(writer, index=False)
+            st.subheader("📊 Extracted Table Preview")
+            st.dataframe(df_final)
+            
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df_final.to_excel(writer, index=False, header=False)
+        else:
+            st.error("❌ Could not identify structured table rows or columns. Make sure the table lines in your image are clearly visible.")
 
     # --- COMMON DOWNLOAD CONTROL ---
-    if 'df_final' in locals():
+    if 'df_final' in locals() and not df_final.empty:
         st.download_button(
             label="📥 Download as Excel (.xlsx)",
             data=buffer.getvalue(),
