@@ -2,70 +2,56 @@ import streamlit as st
 import pandas as pd
 import io
 from PIL import Image
+import easyocr  # <--- NEW AI library to read images!
+import numpy as np
 
-# 1. App Configuration & Title
 st.set_page_config(page_title="File to Excel Converter", layout="centered")
 st.title("📄 Image & PDF to Excel Converter")
-st.write("Upload a PDF or an Image (JPG/PNG) containing a table, and we will convert it to an Excel spreadsheet.")
 
-# 2. File Uploader Component
-uploaded_file = st.file_uploader(
-    "Choose a file...", 
-    type=["pdf", "jpg", "jpeg", "png"]
-)
+uploaded_file = st.file_uploader("Choose a file...", type=["jpg", "jpeg", "png"])
 
-# 3. Processing Logic
 if uploaded_file is not None:
-    # Display details about the uploaded file
     st.success(f"Successfully uploaded: {uploaded_file.name}")
     
-    # Check the file type
-    file_extension = uploaded_file.name.split(".")[-1].lower()
+    # 1. Open the image file
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded Image Preview", use_container_width=True)
     
-    # Placeholder for our final data
-    df_result = None
+    st.info("🤖 AI is reading the image data now...")
+    
+    # 2. Fire up the EasyOCR Reader engine (tells it to read English)
+    reader = easyocr.Reader(['en'])
+    
+    # Convert image to format EasyOCR understands
+    image_np = np.array(image)
+    
+    # 3. Extract the text!
+    # This reads the image and returns a list of text rows it found
+    result = reader.readtext(image_np)
+    
+    # Clean up the results to put into our Excel preview sheet
+    extracted_lines = []
+    for detection in result:
+        text_found = detection[1] # This is the actual text string
+        extracted_lines.append(text_found)
+    
+    # 4. Turn the real text rows into our Excel Data Grid
+    df_result = pd.DataFrame({
+        "Line Number": range(1, len(extracted_lines) + 1),
+        "Extracted Text Data": extracted_lines
+    })
+    
+    # 5. Preview and Download
+    st.subheader("📊 Extracted Data Preview")
+    st.dataframe(df_result)
 
-    if file_extension in ["jpg", "jpeg", "png"]:
-        st.info("Processing Image file...")
-        # Show a preview of the image to the user
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image Preview", use_container_width=True)
-        
-        # --- PLACEHOLDER FOR OCR ENGINE ---
-        # In a complete app, you would use 'pytesseract' or 'easyocr' here.
-        # For this sample interface, we simulate an extracted table:
-        st.warning("OCR Engine text extraction happens here.")
-        df_result = pd.DataFrame({
-            "Receipt/Data Column 1": ["Item A", "Item B", "Item C"],
-            "Amount": [10.50, 24.99, 5.00]
-        })
-
-    elif file_extension == "pdf":
-        st.info("Processing PDF file...")
-        
-        # --- PLACEHOLDER FOR PDF PARSER ---
-        # In a complete app, you would use 'pdfplumber' or 'camelot-py' here.
-        st.warning("PDF table parsing happens here.")
-        df_result = pd.DataFrame({
-            "Invoice Number": ["INV-001", "INV-002"],
-            "Client": ["Acme Corp", "Wayne Enterprises"],
-            "Total Due": ["$1,200", "$3,500"]
-        })
-
-    # 4. Preview and Download Section
-    if df_result is not None:
-        st.subheader("📊 Extracted Data Preview")
-        st.dataframe(df_result) # Displays the data in an interactive grid
-
-        # Convert the DataFrame to an Excel file in memory
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_result.to_excel(writer, index=False, sheet_name='Converted Data')
-        
-        # Download Button
-        st.download_button(
-            label="📥 Download as Excel (.xlsx)",
-            data=buffer.getvalue(),
-            file_name=f"converted_{uploaded_file.name.split('.')[0]}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df_result.to_excel(writer, index=False, sheet_name='OCR Data')
+    
+    st.download_button(
+        label="📥 Download as Excel (.xlsx)",
+        data=buffer.getvalue(),
+        file_name="converted_data.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
