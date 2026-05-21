@@ -4,3 +4,4 @@ xlsxwriter
 pillow
 pdf2image
 pytesseract
+pdfplumber
