@@ -5,5 +5,4 @@ pillow
 pdf2image
 pytesseract
 pdfplumber
-img2table
 openpyxl
