@@ -4,3 +4,4 @@ xlsxwriter
 pillow
 easyocr
 numpy
+pdf2image
