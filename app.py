@@ -8,7 +8,7 @@ import re
 
 # 1. Page Configuration
 st.set_page_config(
-    page_title="TabularAI - Image to Excel", 
+    page_title="CK Image jpj/png  - Image to Excel", 
     page_icon="⚡", 
     layout="centered"
 )
